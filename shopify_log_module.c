@@ -10,8 +10,9 @@
 #include <stdint.h>
 
 /* The log will consume a number of bytes in memory equal to the product of these two */
-#define MAX_MESSAGE_SIZE 2040 // Excludes 8 bytes for mtype; must be under 2K (on OS X... maybe there's a rlimit for it?)
-#define LOG_BUFFER_SLOTS 1024
+#define MAX_MESSAGE_SIZE  2040 // Excludes 8 bytes for mtype; must be under 2K (on OS X... maybe there's a rlimit for it?)
+#define LOG_BUFFER_SLOTS  1024
+#define MESSAGE_QUEUE_KEY 0xDEADC0DE
 
 typedef struct shopify_log_op_s  shopify_log_op_t;
 typedef u_char *(*shopify_log_op_run_pt) (ngx_http_request_t *r, u_char *buf, shopify_log_op_t *op);
@@ -86,7 +87,7 @@ static size_t shopify_log_variable_getlen(ngx_http_request_t *r, uintptr_t data)
 static u_char *shopify_log_variable(ngx_http_request_t *r, u_char *buf, shopify_log_op_t *op);
 static uintptr_t shopify_log_escape(u_char *dst, u_char *src, size_t size);
 
-static char *shopify_log_open_msq(ngx_conf_t *cf, u_char *file, u_char id, int *msqid);
+static char *shopify_log_open_msq(ngx_conf_t *cf, int *msqid);
 
 static void *shopify_log_create_main_conf(ngx_conf_t *cf);
 static void *shopify_log_create_loc_conf(ngx_conf_t *cf);
@@ -551,16 +552,9 @@ shopify_log_create_main_conf(ngx_conf_t *cf)
 }
 
 static char *
-shopify_log_open_msq(ngx_conf_t *cf, u_char *file, u_char id, int *msqid)
+shopify_log_open_msq(ngx_conf_t *cf, int *msqid)
 {
-  key_t msqkey;
-
-  msqkey = ftok((char*)file, (char)id);
-  if (msqkey < 0) {
-    ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "ftok failed with errno=%d. If it's 2, that's because the file doesn't exist.", errno);
-    return NGX_CONF_ERROR;
-  }
-  *msqid = msgget(msqkey, 0660 | IPC_CREAT);
+  *msqid = msgget(MESSAGE_QUEUE_KEY, 0660 | IPC_CREAT);
   if (msqid < 0) {
     ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "msgget failed with errno=%d", errno);
     return NGX_CONF_ERROR;
@@ -653,9 +647,9 @@ shopify_log_set_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     return NGX_CONF_ERROR;
   }
 
-  if (cf->args->nelts != 3) {
+  if (cf->args->nelts != 2 || ngx_strcmp(value[1].data, "on") == 0) {
     ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-        "shopify_access_log requires two parameters for ftok(3): a file and a single char key.");
+        "shopify_access_log requires one parameter, which must be either \"off\" or \"on\"");
     return NGX_CONF_ERROR;
   }
 
@@ -675,7 +669,7 @@ shopify_log_set_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
   ngx_memzero(log, sizeof(shopify_log_t));
 
-  if (shopify_log_open_msq(cf, value[1].data, value[2].data[0], &log->msqid) != NGX_OK) {
+  if (shopify_log_open_msq(cf, &log->msqid) != NGX_OK) {
     return NGX_CONF_ERROR;
   }
 
