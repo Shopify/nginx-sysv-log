@@ -229,8 +229,38 @@ shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t
   int                  ret;
   time_t               now;
   shopify_log_msg_t   *msg;
+  shopify_log_msg_t    lmsg;
 
-  // This is non-ideal. Something much smarter can be done.
+  // This line has a race condition. That's fine though, it's just a fast-path shortcut.
+  if (log->head == log->tail) {
+    // fast path. If there's no data in the buffer, we don't need to lock anything; just allocate a
+    // message on the stack and msgsnd() that.
+    lmsg.mtype = 1;
+    strncpy(lmsg.mtext, (char*)buf, len);
+    ret = msgsnd(log->msqid, &lmsg, sizeof(shopify_log_msg_t), IPC_NOWAIT);
+    // If the message couldn't be delivered, we have to insert it into the ring buffer to be delivered next time.
+    if (ret >= 0) {
+      // nothing
+    } else if (errno == EAGAIN) { // consumer isn't keeping up with the queue. put message in ring buffer.
+      shopify_log_msg_t *msg;
+      // grab the mutex and put it in the ring buffer
+      pthread_mutex_lock(&log->mutex);
+      msg = &log->slots[log->head++ % LOG_BUFFER_SLOTS];
+      msg->mtype = 1;
+      strncpy(msg->mtext, (char*)buf, len);
+      pthread_mutex_unlock(&log->mutex);
+    } else { // An actual error, which should be logged.
+      now = ngx_time();
+      if (now - log->error_log_time >= 60) {
+        ngx_log_error(NGX_LOG_ALERT, r->connection->log, errno, "msgsnd(3) failed in shopify_log_module");
+        log->error_log_time = now;
+      }
+    }
+    return;
+  }
+
+  // Slow path. We are in a situation where there is (probably) data in the ring buffer
+  // which we must attempt to deliver before our current message.
   pthread_mutex_lock(&log->mutex);
 
   if (log->head - log->tail >= LOG_BUFFER_SLOTS) {
