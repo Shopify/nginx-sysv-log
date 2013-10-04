@@ -5,6 +5,7 @@
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
+#include <pthread.h>
 
 #include <sys/msg.h>
 #include <stdint.h>
@@ -49,6 +50,7 @@ typedef struct {
 
 typedef struct {
   int                         msqid;
+  pthread_mutex_t             mutex;
   shopify_log_script_t       *script;
   time_t                      error_log_time;
   shopify_log_fmt_t          *format;
@@ -173,9 +175,9 @@ shopify_log_handler(ngx_http_request_t *r)
   u_char                   *line, *p;
   size_t                    len;
   ngx_uint_t                i, l;
-  shopify_log_t           *log;
-  shopify_log_op_t        *op;
-  shopify_log_loc_conf_t  *lcf;
+  shopify_log_t            *log;
+  shopify_log_op_t         *op;
+  shopify_log_loc_conf_t   *lcf;
 
   ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
       "http log handler");
@@ -228,6 +230,9 @@ shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t
   time_t               now;
   shopify_log_msg_t   *msg;
 
+  // This is non-ideal. Something much smarter can be done.
+  pthread_mutex_lock(&log->mutex);
+
   if (log->head - log->tail >= LOG_BUFFER_SLOTS) {
     now = ngx_time();
     if (now - log->error_log_time >= 60) {
@@ -249,7 +254,7 @@ shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t
     if (ret >= 0) { // success! "remove" the item from the queue and send another.
       log->tail++;
     } else if (errno == EAGAIN) { // Consumer isn't ready for another item yet. We'll just try again on the next log line.
-      return;
+      break;
     } else { // An error happened that we should log.
       now = ngx_time();
       if (now - log->error_log_time >= 60) {
@@ -258,6 +263,7 @@ shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t
       }
     }
   }
+  pthread_mutex_unlock(&log->mutex);
 }
 
 static u_char *
@@ -609,6 +615,7 @@ shopify_log_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
   }
 
   log->msqid = -1;
+  log->mutex = PTHREAD_MUTEX_INITIALIZER;
   log->script = NULL;
   log->error_log_time = 0;
 
@@ -668,6 +675,7 @@ shopify_log_set_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
   }
 
   ngx_memzero(log, sizeof(shopify_log_t));
+  log->mutex = PTHREAD_MUTEX_INITIALIZER;
 
   if (shopify_log_open_msq(cf, &log->msqid) != NGX_OK) {
     return NGX_CONF_ERROR;
