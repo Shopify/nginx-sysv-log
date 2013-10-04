@@ -229,7 +229,7 @@ shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t
 
   if (log->head - log->tail >= LOG_BUFFER_SLOTS) {
     now = ngx_time();
-    if (now - log->error_log_time > 59) {
+    if (now - log->error_log_time >= 60) {
       ngx_log_error(NGX_LOG_ALERT, r->connection->log, errno,
           "log production rate in shopify_log_module is exceeding queue consumer throughput; log messages are being discarded");
       log->error_log_time = now;
@@ -237,14 +237,10 @@ shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t
   }
 
   msg = &log->slots[log->head++ % LOG_BUFFER_SLOTS];
-  msg->mtype = 3;
+  msg->mtype = 0;
   strncpy(msg->mtext, (char*)buf, len);
 
-  while (1) {
-    if (log->tail == log->head) {
-      // caught up; no messages to send.
-      break;
-    }
+  while (log->tail != log->head) { // fail means we're caught up; no messages to send.
 
     msg = &log->slots[log->tail % LOG_BUFFER_SLOTS];
     ret = msgsnd(log->msqid, msg, sizeof(shopify_log_msg_t), IPC_NOWAIT);
@@ -255,7 +251,7 @@ shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t
       return;
     } else { // An error happened that we should log.
       now = ngx_time();
-      if (now - log->error_log_time > 59) {
+      if (now - log->error_log_time >= 60) {
         ngx_log_error(NGX_LOG_ALERT, r->connection->log, errno, "msgsnd(3) failed in shopify_log_module");
         log->error_log_time = now;
       }
@@ -564,7 +560,7 @@ shopify_log_open_msq(ngx_conf_t *cf, u_char *file, u_char id, int *msqid)
     ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "ftok failed with errno=%d. If it's 2, that's because the file doesn't exist.", errno);
     return NGX_CONF_ERROR;
   }
-  *msqid = msgget(msqkey, 0666 | IPC_CREAT);
+  *msqid = msgget(msqkey, 0660 | IPC_CREAT);
   if (msqid < 0) {
     ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "msgget failed with errno=%d", errno);
     return NGX_CONF_ERROR;
