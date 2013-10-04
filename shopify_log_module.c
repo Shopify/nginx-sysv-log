@@ -10,7 +10,7 @@
 #include <stdint.h>
 
 /* The log will consume a number of bytes in memory equal to the product of these two */
-#define MAX_MESSAGE_SIZE  2040 // Excludes 8 bytes for mtype; must be under 2K (on OS X... maybe there's a rlimit for it?)
+#define MAX_MESSAGE_SIZE  65528 // Excludes 8 bytes for mtype; must be under 64K. (Need to adjust rlimit for this to work on most platforms)
 #define LOG_BUFFER_SLOTS  1024
 #define MESSAGE_QUEUE_KEY 0xDEADC0DE
 
