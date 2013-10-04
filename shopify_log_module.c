@@ -238,7 +238,7 @@ shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t
   }
 
   msg = &log->slots[log->head++ % LOG_BUFFER_SLOTS];
-  msg->mtype = 0;
+  msg->mtype = 1;
   strncpy(msg->mtext, (char*)buf, len);
 
   while (log->tail != log->head) { // fail means we're caught up; no messages to send.
