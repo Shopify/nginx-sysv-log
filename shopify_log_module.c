@@ -15,6 +15,9 @@
 #define LOG_BUFFER_SLOTS  1024
 #define MESSAGE_QUEUE_KEY 0xDEADC0DE
 
+#define SVMQ_MESSAGE_TYPE 1  // mtype for SysV MQ messages. 0 is invalid.
+#define LOG_ERROR_TIMEOUT 60 // Min number of seconds between printing messages that could otherwise spam the error log.
+
 typedef struct shopify_log_op_s  shopify_log_op_t;
 typedef u_char *(*shopify_log_op_run_pt) (ngx_http_request_t *r, u_char *buf, shopify_log_op_t *op);
 typedef size_t (*shopify_log_op_getlen_pt) (ngx_http_request_t *r, uintptr_t data);
@@ -235,7 +238,7 @@ shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t
   if (log->head == log->tail) {
     // fast path. If there's no data in the buffer, we don't need to lock anything; just allocate a
     // message on the stack and msgsnd() that.
-    lmsg.mtype = 1;
+    lmsg.mtype = SVMQ_MESSAGE_TYPE;
     strncpy(lmsg.mtext, (char*)buf, len);
     ret = msgsnd(log->msqid, &lmsg, sizeof(shopify_log_msg_t), IPC_NOWAIT);
     // If the message couldn't be delivered, we have to insert it into the ring buffer to be delivered next time.
@@ -246,12 +249,12 @@ shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t
       // grab the mutex and put it in the ring buffer
       pthread_mutex_lock(&log->mutex);
       msg = &log->slots[log->head++ % LOG_BUFFER_SLOTS];
-      msg->mtype = 1;
+      msg->mtype = SVMQ_MESSAGE_TYPE;
       strncpy(msg->mtext, (char*)buf, len);
       pthread_mutex_unlock(&log->mutex);
     } else { // An actual error, which should be logged.
       now = ngx_time();
-      if (now - log->error_log_time >= 60) {
+      if (now - log->error_log_time >= LOG_ERROR_TIMEOUT) {
         ngx_log_error(NGX_LOG_ALERT, r->connection->log, errno, "msgsnd(3) failed in shopify_log_module");
         log->error_log_time = now;
       }
@@ -265,7 +268,7 @@ shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t
 
   if (log->head - log->tail >= LOG_BUFFER_SLOTS) {
     now = ngx_time();
-    if (now - log->error_log_time >= 60) {
+    if (now - log->error_log_time >= LOG_ERROR_TIMEOUT) {
       ngx_log_error(NGX_LOG_ALERT, r->connection->log, errno,
           "log production rate in shopify_log_module is exceeding queue consumer throughput; log messages are being discarded");
       log->error_log_time = now;
@@ -273,7 +276,7 @@ shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t
   }
 
   msg = &log->slots[log->head++ % LOG_BUFFER_SLOTS];
-  msg->mtype = 1;
+  msg->mtype = SVMQ_MESSAGE_TYPE;
   strncpy(msg->mtext, (char*)buf, len);
 
   while (log->tail != log->head) { // fail means we're caught up; no messages to send.
