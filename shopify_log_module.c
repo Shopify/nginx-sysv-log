@@ -11,8 +11,14 @@
 #include <stdint.h>
 
 /* The log will consume a number of bytes in memory equal to the product of these two */
-#define MAX_MESSAGE_SIZE  65528 // Excludes 8 bytes for mtype; must be under 64K. (Need to adjust rlimit for this to work on most platforms)
 #define LOG_BUFFER_SLOTS  1024
+
+#ifdef __APPLE__
+#define MAX_MESSAGE_SIZE  2040 // Excludes 8 bytes for mtype; must be under 2K. Can't tune this to a higher value without recompiling Darwin.
+#else
+#define MAX_MESSAGE_SIZE  65528 // Excludes 8 bytes for mtype; must be under 64K.
+#endif
+
 #define MESSAGE_QUEUE_KEY 0xDEADC0DE
 
 #define SVMQ_MESSAGE_TYPE 1  // mtype for SysV MQ messages. 0 is invalid.
@@ -648,7 +654,7 @@ shopify_log_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
   }
 
   log->msqid = -1;
-  log->mutex = PTHREAD_MUTEX_INITIALIZER;
+  pthread_mutex_init(&log->mutex, NULL);
   log->script = NULL;
   log->error_log_time = 0;
 
@@ -687,7 +693,7 @@ shopify_log_set_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     return NGX_CONF_ERROR;
   }
 
-  if (cf->args->nelts != 2 || ngx_strcmp(value[1].data, "on") == 0) {
+  if (cf->args->nelts != 2 || ngx_strcmp(value[1].data, "on") != 0) {
     ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
         "shopify_access_log requires one parameter, which must be either \"off\" or \"on\"");
     return NGX_CONF_ERROR;
@@ -708,7 +714,7 @@ shopify_log_set_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
   }
 
   ngx_memzero(log, sizeof(shopify_log_t));
-  log->mutex = PTHREAD_MUTEX_INITIALIZER;
+  pthread_mutex_init(&log->mutex, NULL);
 
   if (shopify_log_open_msq(cf, &log->msqid) != NGX_OK) {
     return NGX_CONF_ERROR;

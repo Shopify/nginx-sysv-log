@@ -10,11 +10,7 @@ struct msqmsg {
 
 int main()
 {
-  key_t key = ftok("/usr/local/nginx/access.svmq", 'b');
-  if (key < 0) {
-    perror("ftok fail");
-  }
-  int msqid = msgget(key, 0666 | IPC_CREAT);
+  int msqid = msgget(0xDEADC0DE, 0666 | IPC_CREAT);
   if (msqid < 0) {
     perror("msgget fail");
   }
@@ -24,7 +20,7 @@ int main()
 
   ssize_t ret;
 
-  printf("Waiting on log MQ at {/usr/local/nginx/access.svmq,b}\n");
+  printf("Waiting on log MQ at 0xDEADC0DE\n");
   for (;;) {
     // ssize_t msgrcv(int, void*, size_t, long, int)
     ret = msgrcv(msqid, data, size, 0, 0);
