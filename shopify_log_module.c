@@ -13,10 +13,11 @@
 /* The log will consume a number of bytes in memory equal to the product of these two */
 #define LOG_BUFFER_SLOTS  1024
 
+/* Message Size (+ 8 for mtype) must be under the system-imposed limit */
 #ifdef __APPLE__
-#define MAX_MESSAGE_SIZE  2040 // Excludes 8 bytes for mtype; must be under 2K. Can't tune this to a higher value without recompiling Darwin.
+#define MAX_MESSAGE_SIZE  2040 // Limit 2K. Can't tune SysV MQ limits to higher values without recompiling Darwin.
 #else
-#define MAX_MESSAGE_SIZE  65528 // Excludes 8 bytes for mtype; must be under 64K.
+#define MAX_MESSAGE_SIZE  65528 // Limit 64K.
 #endif
 
 #define MESSAGE_QUEUE_KEY 0xDEADC0DE
@@ -802,6 +803,8 @@ shopify_log_push_char(ngx_array_t *ops, char chr)
   return 0;
 }
 
+static char *json_header = "{\"event_source\":\"nginx\",";
+
 static char *
 shopify_log_compile_format(ngx_conf_t *cf, ngx_array_t *ops, ngx_array_t *args, ngx_uint_t s)
 {
@@ -815,7 +818,15 @@ shopify_log_compile_format(ngx_conf_t *cf, ngx_array_t *ops, ngx_array_t *args, 
 
   value = args->elts;
 
-  PUSH_CHAR('{');
+  op = ngx_array_push(ops);
+  if (op == NULL) {
+    return NGX_CONF_ERROR;
+  }
+  op->len = 24;
+  op->getlen = NULL;
+  op->run = shopify_log_copy_long;
+
+  op->data = (uintptr_t) json_header;
 
   key0value1 = 0; // read a key first
   initial = 1;
