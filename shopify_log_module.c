@@ -247,6 +247,7 @@ shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t
     // message on the stack and msgsnd() that.
     lmsg.mtype = SVMQ_MESSAGE_TYPE;
     strncpy(lmsg.mtext, (char*)buf, len);
+    lmsg.mtext[len] = 0;
     ret = msgsnd(log->msqid, &lmsg, sizeof(shopify_log_msg_t), IPC_NOWAIT);
     // If the message couldn't be delivered, we have to insert it into the ring buffer to be delivered next time.
     if (ret >= 0) {
@@ -258,6 +259,7 @@ shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t
       msg = &log->slots[log->head++ % LOG_BUFFER_SLOTS];
       msg->mtype = SVMQ_MESSAGE_TYPE;
       strncpy(msg->mtext, (char*)buf, len);
+      msg->mtext[len] = 0;
       pthread_mutex_unlock(&log->mutex);
     } else { // An actual error, which should be logged.
       now = ngx_time();
@@ -285,6 +287,7 @@ shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t
   msg = &log->slots[log->head++ % LOG_BUFFER_SLOTS];
   msg->mtype = SVMQ_MESSAGE_TYPE;
   strncpy(msg->mtext, (char*)buf, len);
+  msg->mtext[len] = 0;
 
   while (log->tail != log->head) { // fail means we're caught up; no messages to send.
 
@@ -803,7 +806,7 @@ shopify_log_push_char(ngx_array_t *ops, char chr)
   return 0;
 }
 
-static char *json_header = "{\"event_source\":\"nginx\",";
+static u_char *json_header = (u_char *) "{\"event_source\":\"nginx\",";
 
 static char *
 shopify_log_compile_format(ngx_conf_t *cf, ngx_array_t *ops, ngx_array_t *args, ngx_uint_t s)
@@ -825,7 +828,6 @@ shopify_log_compile_format(ngx_conf_t *cf, ngx_array_t *ops, ngx_array_t *args, 
   op->len = 24;
   op->getlen = NULL;
   op->run = shopify_log_copy_long;
-
   op->data = (uintptr_t) json_header;
 
   key0value1 = 0; // read a key first
