@@ -806,8 +806,6 @@ shopify_log_push_char(ngx_array_t *ops, char chr)
   return 0;
 }
 
-static u_char *json_header = (u_char *) "{\"event_source\":\"nginx\",";
-
 static char *
 shopify_log_compile_format(ngx_conf_t *cf, ngx_array_t *ops, ngx_array_t *args, ngx_uint_t s)
 {
@@ -821,14 +819,7 @@ shopify_log_compile_format(ngx_conf_t *cf, ngx_array_t *ops, ngx_array_t *args, 
 
   value = args->elts;
 
-  op = ngx_array_push(ops);
-  if (op == NULL) {
-    return NGX_CONF_ERROR;
-  }
-  op->len = 24;
-  op->getlen = NULL;
-  op->run = shopify_log_copy_long;
-  op->data = (uintptr_t) json_header;
+  PUSH_CHAR('{');
 
   key0value1 = 0; // read a key first
   initial = 1;
