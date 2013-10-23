@@ -42,13 +42,11 @@ shopify_log_format  event_timestamp    $time_iso8601
 
 ### `shopify_access_log`
 
-Takes two parameters, which are parameters to `ftok(3)`, used to locate a SysV
-MQ. The first is a file, which must exist, and the user running nginx must have
-access to. The second is a single character which represents an ID. A single
-file can be used for multiple MQs by varying the ID. Example:
+Takes one parameter, either "on" or "off". If enabled, the queue used is always
+`0xDEADC0DE`.
 
 ```
-shopify_access_log /usr/local/nginx/access.svmq b;
+shopify_access_log on;
 ```
 
 `shopify_access_log` should come after `shopify_log_format`. To suppress the
