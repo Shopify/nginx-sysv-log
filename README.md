@@ -9,10 +9,6 @@ nginx log module, with a few additions and deletions:
 * Rewrote log formatting to log in JSON.
 * Rather than writing to files, log to a SysV MQ.
 
-## Status
-
-Not quite ready yet. Needs more testing.
-
 ## Installation
 
 You can compile it by cd'ing into a new nginx source unpack and running:
@@ -20,7 +16,7 @@ You can compile it by cd'ing into a new nginx source unpack and running:
     auto/configure --add-module=/path/to/shopify_log_module
     make
     make install
-    # or just run
+    # or instead of make install, just run:
     objs/nginx
 
 This does not override the existing log facility; it provides its own:
