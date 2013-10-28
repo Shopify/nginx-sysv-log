@@ -15,9 +15,9 @@
 
 /* Message Size (+ 8 for mtype) must be under the system-imposed limit */
 #ifdef __APPLE__
-#define MAX_MESSAGE_SIZE  2040 // Limit 2K. Can't tune SysV MQ limits to higher values without recompiling Darwin.
+#define MAX_MESSAGE_SIZE  2040 // Limit 2K (-8 for the long). Can't tune SysV MQ limits to higher values without recompiling Darwin.
 #else
-#define MAX_MESSAGE_SIZE  65527 // Limit 64K-1
+#define MAX_MESSAGE_SIZE  65527 // Limit 64K-1 ( - 8 for the long)
 #endif
 
 #define MESSAGE_QUEUE_KEY 0xDEADC0DE
@@ -240,6 +240,12 @@ shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t
   time_t               now;
   shopify_log_msg_t   *msg;
   shopify_log_msg_t    lmsg;
+
+  ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0, "Nginx gave me %d bytes to write", len);
+  if (len > MAX_MESSAGE_SIZE) {
+    ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0, "log line too long to write: got %d bytes; needed <%d", len, MAX_MESSAGE_SIZE);
+    return;
+  }
 
   // This line has a race condition. That's fine though, it's just a fast-path shortcut.
   if (log->head == log->tail) {
