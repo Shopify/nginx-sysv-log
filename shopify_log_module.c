@@ -17,7 +17,7 @@
 #ifdef __APPLE__
 #define MAX_MESSAGE_SIZE  2040 // Limit 2K. Can't tune SysV MQ limits to higher values without recompiling Darwin.
 #else
-#define MAX_MESSAGE_SIZE  32760 // Limit 64K.
+#define MAX_MESSAGE_SIZE  65527 // Limit 64K-1
 #endif
 
 #define MESSAGE_QUEUE_KEY 0xDEADC0DE
@@ -246,8 +246,8 @@ shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t
     // fast path. If there's no data in the buffer, we don't need to lock anything; just allocate a
     // message on the stack and msgsnd() that.
     lmsg.mtype = SVMQ_MESSAGE_TYPE;
-    strncpy(lmsg.mtext, (char*)buf, len);
-    lmsg.mtext[len] = 0;
+    memcpy(lmsg.mtext, (char*)buf, len);
+    lmsg.mtext[len-1] = 0; // The message is always passed in with a trailing newline. We replace with a NUL.
     ret = msgsnd(log->msqid, &lmsg, sizeof(shopify_log_msg_t), IPC_NOWAIT);
     // If the message couldn't be delivered, we have to insert it into the ring buffer to be delivered next time.
     if (ret >= 0) {
@@ -258,8 +258,8 @@ shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t
       pthread_mutex_lock(&log->mutex);
       msg = &log->slots[log->head++ % LOG_BUFFER_SLOTS];
       msg->mtype = SVMQ_MESSAGE_TYPE;
-      strncpy(msg->mtext, (char*)buf, len);
-      msg->mtext[len] = 0;
+      memcpy(msg->mtext, (char*)buf, len);
+      msg->mtext[len-1] = 0;
       pthread_mutex_unlock(&log->mutex);
     } else { // An actual error, which should be logged.
       now = ngx_time();
@@ -286,8 +286,8 @@ shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t
 
   msg = &log->slots[log->head++ % LOG_BUFFER_SLOTS];
   msg->mtype = SVMQ_MESSAGE_TYPE;
-  strncpy(msg->mtext, (char*)buf, len);
-  msg->mtext[len] = 0;
+  memcpy(msg->mtext, (char*)buf, len);
+  msg->mtext[len-1] = 0;
 
   while (log->tail != log->head) { // fail means we're caught up; no messages to send.
 
