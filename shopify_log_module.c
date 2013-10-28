@@ -604,7 +604,7 @@ static char *
 shopify_log_open_msq(ngx_conf_t *cf, int *msqid)
 {
   *msqid = msgget(MESSAGE_QUEUE_KEY, 0660 | IPC_CREAT);
-  if ((int)msqid < 0) {
+  if (*msqid < 0) {
     ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "msgget failed with errno=%d", errno);
     return NGX_CONF_ERROR;
   }
