@@ -27,7 +27,7 @@ int main()
     if (ret < 0) {
       printf("error :( -- %d\n", errno);
     } else {
-      printf("%s", data->mtext);
+      printf("%s\n", data->mtext);
     }
 
   }
