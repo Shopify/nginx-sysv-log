@@ -17,7 +17,7 @@
 #ifdef __APPLE__
 #define MAX_MESSAGE_SIZE  2040 // Limit 2K (-8 for the long). Can't tune SysV MQ limits to higher values without recompiling Darwin.
 #else
-#define MAX_MESSAGE_SIZE  65527 // Limit 64K-1 ( - 8 for the long)
+#define MAX_MESSAGE_SIZE  32759 // Limit 64K-1 ( - 8 for the long)
 #endif
 
 #define MESSAGE_QUEUE_KEY 0xDEADC0DE
@@ -298,6 +298,7 @@ shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t
 
     msg = &log->slots[log->tail % LOG_BUFFER_SLOTS];
     ret = msgsnd(log->msqid, msg, len * sizeof(char) - 1, IPC_NOWAIT);
+    ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0, "got ret %d, errno=%d", ret, errno);
 
     if (ret >= 0) { // success! "remove" the item from the queue and send another.
       log->tail++;
