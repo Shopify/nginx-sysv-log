@@ -247,9 +247,7 @@ shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t
     // message on the stack and msgsnd() that.
     lmsg.mtype = SVMQ_MESSAGE_TYPE;
     memcpy(lmsg.mtext, (char*)buf, len);
-    lmsg.mtext[len-1] = 0; // The message is always passed in with a trailing newline. We replace with a NUL.
-
-    ret = msgsnd(log->msqid, &lmsg, sizeof(shopify_log_msg_t), IPC_NOWAIT);
+    ret = msgsnd(log->msqid, &lmsg, len * sizeof(char) - 1, IPC_NOWAIT);
     ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0, "got ret %d, errno=%d", ret, errno);
 
     // If the message couldn't be delivered, we have to insert it into the ring buffer to be delivered next time.
@@ -262,7 +260,6 @@ shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t
       msg = &log->slots[log->head++ % LOG_BUFFER_SLOTS];
       msg->mtype = SVMQ_MESSAGE_TYPE;
       memcpy(msg->mtext, (char*)buf, len);
-      msg->mtext[len-1] = 0;
       pthread_mutex_unlock(&log->mutex);
     } else { // An actual error, which should be logged.
       now = ngx_time();
@@ -290,12 +287,11 @@ shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t
   msg = &log->slots[log->head++ % LOG_BUFFER_SLOTS];
   msg->mtype = SVMQ_MESSAGE_TYPE;
   memcpy(msg->mtext, (char*)buf, len);
-  msg->mtext[len-1] = 0;
 
   while (log->tail != log->head) { // fail means we're caught up; no messages to send.
 
     msg = &log->slots[log->tail % LOG_BUFFER_SLOTS];
-    ret = msgsnd(log->msqid, msg, sizeof(shopify_log_msg_t), IPC_NOWAIT);
+    ret = msgsnd(log->msqid, msg, len * sizeof(char) - 1, IPC_NOWAIT);
 
     if (ret >= 0) { // success! "remove" the item from the queue and send another.
       log->tail++;
