@@ -604,7 +604,7 @@ static char *
 shopify_log_open_msq(ngx_conf_t *cf, int *msqid)
 {
   *msqid = msgget(MESSAGE_QUEUE_KEY, 0660 | IPC_CREAT);
-  if (msqid < 0) {
+  if ((int)msqid < 0) {
     ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "msgget failed with errno=%d", errno);
     return NGX_CONF_ERROR;
   }
@@ -677,12 +677,11 @@ shopify_log_set_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
   shopify_log_loc_conf_t *llcf = conf;
 
-  ngx_uint_t                  i, n;
-  ngx_str_t                  *value, name, s;
+  ngx_uint_t                  i;
+  ngx_str_t                  *value, name;
   shopify_log_t             *log;
   shopify_log_fmt_t         *fmt;
   shopify_log_main_conf_t   *lmcf;
-  ngx_http_script_compile_t   sc;
 
   value = cf->args->elts;
 
@@ -957,10 +956,7 @@ invalid:
 static ngx_int_t
 shopify_log_init(ngx_conf_t *cf)
 {
-  ngx_str_t                  *value;
-  ngx_array_t                 a;
   ngx_http_handler_pt        *h;
-  shopify_log_fmt_t          *fmt;
   ngx_http_core_main_conf_t  *cmcf;
 
   cmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_core_module);
