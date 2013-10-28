@@ -17,7 +17,7 @@
 #ifdef __APPLE__
 #define MAX_MESSAGE_SIZE  2040 // Limit 2K. Can't tune SysV MQ limits to higher values without recompiling Darwin.
 #else
-#define MAX_MESSAGE_SIZE  30000 // Limit 64K-1
+#define MAX_MESSAGE_SIZE  65527 // Limit 64K-1
 #endif
 
 #define MESSAGE_QUEUE_KEY 0xDEADC0DE
