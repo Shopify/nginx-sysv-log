@@ -5,19 +5,15 @@
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
-#include <pthread.h>
 
 #include <sys/msg.h>
 #include <stdint.h>
 
-/* The log will consume a number of bytes in memory equal to the product of these two */
-#define LOG_BUFFER_SLOTS  1024
-
 /* Message Size (+ 8 for mtype) must be under the system-imposed limit */
 #ifdef __APPLE__
-#define MAX_MESSAGE_SIZE  2040 // Limit 2K (-8 for the long). Can't tune SysV MQ limits to higher values without recompiling Darwin.
+#define MAX_MESSAGE_SIZE  2040 // Limit 2K (-8 for mtype). Can't tune SysV MQ limits to higher values without recompiling Darwin.
 #else
-#define MAX_MESSAGE_SIZE  32759 // Limit 64K-1 ( - 8 for the long)
+#define MAX_MESSAGE_SIZE  32759 // Limit 64K-1 (-8 for mtype), but it wasn't working so I reduced it by 1/2 in a very scientific troubleshooting endeavour.
 #endif
 
 #define MESSAGE_QUEUE_KEY 0xDEADC0DE
@@ -60,13 +56,9 @@ typedef struct {
 
 typedef struct {
   int                         msqid;
-  pthread_mutex_t             mutex;
   shopify_log_script_t       *script;
   time_t                      error_log_time;
   shopify_log_fmt_t          *format;
-  uint64_t                    head;
-  uint64_t                    tail;
-  shopify_log_msg_t           slots[LOG_BUFFER_SLOTS];
 } shopify_log_t;
 
 
@@ -236,83 +228,32 @@ shopify_log_handler(ngx_http_request_t *r)
 static void
 shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t len)
 {
-  int                  ret;
-  time_t               now;
-  shopify_log_msg_t   *msg;
-  shopify_log_msg_t    lmsg;
+  int               ret;
+  time_t            now;
+  shopify_log_msg_t lmsg;
 
-  ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0, "Nginx gave me %d bytes to write", len);
   if (len > MAX_MESSAGE_SIZE) {
-    ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0, "log line too long to write: got %d bytes; needed <%d", len, MAX_MESSAGE_SIZE);
+    ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0,
+        "log line too long to write: got %d bytes; needed <%d", len, MAX_MESSAGE_SIZE);
     return;
   }
 
-  // This line has a race condition. That's fine though, it's just a fast-path shortcut.
-  if (log->head == log->tail) {
-    // fast path. If there's no data in the buffer, we don't need to lock anything; just allocate a
-    // message on the stack and msgsnd() that.
-    lmsg.mtype = SVMQ_MESSAGE_TYPE;
-    memcpy(lmsg.mtext, (char*)buf, len);
-    ret = msgsnd(log->msqid, &lmsg, len * sizeof(char) - 1, IPC_NOWAIT);
-    ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0, "got ret %d, errno=%d", ret, errno);
+  lmsg.mtype = SVMQ_MESSAGE_TYPE;
+  memcpy(lmsg.mtext, (char*)buf, len);
+  ret = msgsnd(log->msqid, &lmsg, len * sizeof(char) - 1, IPC_NOWAIT);
 
-    // If the message couldn't be delivered, we have to insert it into the ring buffer to be delivered next time.
-    if (ret >= 0) {
-      // nothing
-    } else if (errno == EAGAIN) { // consumer isn't keeping up with the queue. put message in ring buffer.
-      shopify_log_msg_t *msg;
-      // grab the mutex and put it in the ring buffer
-      pthread_mutex_lock(&log->mutex);
-      msg = &log->slots[log->head++ % LOG_BUFFER_SLOTS];
-      msg->mtype = SVMQ_MESSAGE_TYPE;
-      memcpy(msg->mtext, (char*)buf, len);
-      pthread_mutex_unlock(&log->mutex);
-    } else { // An actual error, which should be logged.
-      now = ngx_time();
-      if (now - log->error_log_time >= LOG_ERROR_TIMEOUT) {
-        ngx_log_error(NGX_LOG_ALERT, r->connection->log, errno, "msgsnd(3) failed in shopify_log_module");
-        log->error_log_time = now;
-      }
-    }
-    return;
-  }
-
-  // Slow path. We are in a situation where there is (probably) data in the ring buffer
-  // which we must attempt to deliver before our current message.
-  pthread_mutex_lock(&log->mutex);
-
-  if (log->head - log->tail >= LOG_BUFFER_SLOTS) {
+  if (ret < 0) {
     now = ngx_time();
     if (now - log->error_log_time >= LOG_ERROR_TIMEOUT) {
-      ngx_log_error(NGX_LOG_ALERT, r->connection->log, errno,
-          "log production rate in shopify_log_module is exceeding queue consumer throughput; log messages are being discarded");
+      if (errno == EAGAIN) {
+        ngx_log_error(NGX_LOG_ALERT, r->connection->log, errno,
+            "log production rate in shopify_log_module is exceeding queue consumer throughput; log messages are being discarded");
+      } else {
+        ngx_log_error(NGX_LOG_ALERT, r->connection->log, errno, "msgsnd(3) failed in shopify_log_module");
+      }
       log->error_log_time = now;
     }
   }
-
-  msg = &log->slots[log->head++ % LOG_BUFFER_SLOTS];
-  msg->mtype = SVMQ_MESSAGE_TYPE;
-  memcpy(msg->mtext, (char*)buf, len);
-
-  while (log->tail != log->head) { // fail means we're caught up; no messages to send.
-
-    msg = &log->slots[log->tail % LOG_BUFFER_SLOTS];
-    ret = msgsnd(log->msqid, msg, len * sizeof(char) - 1, IPC_NOWAIT);
-    ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0, "got ret %d, errno=%d", ret, errno);
-
-    if (ret >= 0) { // success! "remove" the item from the queue and send another.
-      log->tail++;
-    } else if (errno == EAGAIN) { // Consumer isn't ready for another item yet. We'll just try again on the next log line.
-      break;
-    } else { // An error happened that we should log.
-      now = ngx_time();
-      if (now - log->error_log_time >= 60) {
-        ngx_log_error(NGX_LOG_ALERT, r->connection->log, errno, "msgsnd(3) failed in shopify_log_module");
-        log->error_log_time = now;
-      }
-    }
-  }
-  pthread_mutex_unlock(&log->mutex);
 }
 
 static u_char *
@@ -664,7 +605,6 @@ shopify_log_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
   }
 
   log->msqid = -1;
-  pthread_mutex_init(&log->mutex, NULL);
   log->script = NULL;
   log->error_log_time = 0;
 
@@ -723,7 +663,6 @@ shopify_log_set_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
   }
 
   ngx_memzero(log, sizeof(shopify_log_t));
-  pthread_mutex_init(&log->mutex, NULL);
 
   if (shopify_log_open_msq(cf, &log->msqid) != NGX_OK) {
     return NGX_CONF_ERROR;
