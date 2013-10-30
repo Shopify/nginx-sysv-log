@@ -91,7 +91,7 @@ static size_t shopify_log_variable_getlen(ngx_http_request_t *r, uintptr_t data)
 static u_char *shopify_log_variable(ngx_http_request_t *r, u_char *buf, shopify_log_op_t *op);
 static uintptr_t shopify_log_escape(u_char *dst, u_char *src, size_t size);
 
-static char *shopify_log_open_msq(ngx_conf_t *cf, int *msqid);
+static char *shopify_log_open_msq(int *msqid);
 
 static void *shopify_log_create_main_conf(ngx_conf_t *cf);
 static void *shopify_log_create_loc_conf(ngx_conf_t *cf);
@@ -248,6 +248,11 @@ shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t
       if (errno == EAGAIN) {
         ngx_log_error(NGX_LOG_ALERT, r->connection->log, errno,
             "log production rate in shopify_log_module is exceeding queue consumer throughput; log messages are being discarded");
+      } else if (errno == EIDRM || errno == EINVAL) {
+        ngx_log_error(NGX_LOG_ALERT, r->connection->log, errno, "msgsnd(3) failed in shopify_log_module: mq was probably closed. Reopening it.");
+        if (shopify_log_open_msq(&log->msqid) != NGX_OK) {
+          ngx_log_error(NGX_LOG_ALERT, r->connection->log, errno, "shopify_log_module: couldn't reopen message queue!");
+        }
       } else {
         ngx_log_error(NGX_LOG_ALERT, r->connection->log, errno, "msgsnd(3) failed in shopify_log_module");
       }
@@ -548,11 +553,10 @@ shopify_log_create_main_conf(ngx_conf_t *cf)
 }
 
 static char *
-shopify_log_open_msq(ngx_conf_t *cf, int *msqid)
+shopify_log_open_msq(int *msqid)
 {
   *msqid = msgget(MESSAGE_QUEUE_KEY, 0660 | IPC_CREAT);
   if (*msqid < 0) {
-    ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "msgget failed with errno=%d", errno);
     return NGX_CONF_ERROR;
   }
   return NGX_OK;
@@ -664,7 +668,8 @@ shopify_log_set_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
   ngx_memzero(log, sizeof(shopify_log_t));
 
-  if (shopify_log_open_msq(cf, &log->msqid) != NGX_OK) {
+  if (shopify_log_open_msq(&log->msqid) != NGX_OK) {
+    ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "msgget failed with errno=%d", errno);
     return NGX_CONF_ERROR;
   }
 
