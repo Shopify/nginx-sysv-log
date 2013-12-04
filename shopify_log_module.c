@@ -478,10 +478,10 @@ shopify_log_escape(u_char *dst, u_char *src, size_t size)
     /*              ~}| {zyx wvut srqp  onml kjih gfed cba` */
     0x80000000, /* 1000 0000 0000 0000  0000 0000 0000 0000 */
 
-    0xffffffff, /* 1111 1111 1111 1111  1111 1111 1111 1111 */
-    0xffffffff, /* 1111 1111 1111 1111  1111 1111 1111 1111 */
-    0xffffffff, /* 1111 1111 1111 1111  1111 1111 1111 1111 */
-    0xffffffff, /* 1111 1111 1111 1111  1111 1111 1111 1111 */
+    0x00000000, /* 0000 0000 0000 0000  0000 0000 0000 0000 */
+    0x00000000, /* 0000 0000 0000 0000  0000 0000 0000 0000 */
+    0x00000000, /* 0000 0000 0000 0000  0000 0000 0000 0000 */
+    0x00000000, /* 0000 0000 0000 0000  0000 0000 0000 0000 */
   };
 
   if (dst == NULL) {
@@ -503,12 +503,23 @@ shopify_log_escape(u_char *dst, u_char *src, size_t size)
 
   while (size) {
     if (escape[*src >> 5] & (1 << (*src & 0x1f))) {
-      *dst++ = '\\';
-      *dst++ = 'x';
-      *dst++ = hex[*src >> 4];
-      *dst++ = hex[*src & 0xf];
-      src++;
-
+      if (*src == '\\') {
+        *dst++ = '\\';
+        *dst++ = '\\';
+        src++;
+      } else if (*src == '"') {
+        *dst++ = '\\';
+        *dst++ = '\"';
+        src++;
+      } else {
+        *dst++ = '\\';
+        *dst++ = 'u';
+        *dst++ = '0';
+        *dst++ = '0';
+        *dst++ = hex[*src >> 4];
+        *dst++ = hex[*src & 0xf];
+        src++;
+      }
     } else {
       *dst++ = *src++;
     }
