@@ -231,7 +231,7 @@ shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t
   int               ret;
   size_t            len;
   time_t            now;
-  shopify_log_msg_t lmsg;
+  shopify_log_msg_t msg;
 
   len = orig_len - NGX_LINEFEED_SIZE;
   if (len < 0) len = 0;
@@ -245,9 +245,9 @@ shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t
   // first element in the log line, then treating the buffer passed in here by nginx as the
   // actual struct type expected by msgsnd. length would just be len-4. This would prevent
   // having to copy the entire string here.
-  lmsg.mtype = SVMQ_MESSAGE_TYPE;
-  ngx_memcpy(lmsg.mtext, (char*)buf, len);
-  ret = msgsnd(log->msqid, &lmsg, len * sizeof(char), IPC_NOWAIT);
+  msg.mtype = SVMQ_MESSAGE_TYPE;
+  ngx_memcpy(msg.mtext, (char*)buf, len);
+  ret = msgsnd(log->msqid, &msg, len * sizeof(char), IPC_NOWAIT);
 
   if (ret < 0) {
     now = ngx_time();
