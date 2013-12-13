@@ -226,21 +226,28 @@ shopify_log_handler(ngx_http_request_t *r)
 }
 
 static void
-shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t len)
+shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t orig_len)
 {
   int               ret;
+  size_t            len;
   time_t            now;
   shopify_log_msg_t lmsg;
 
+  len = orig_len - NGX_LINEFEED_SIZE;
+  if (len < 0) len = 0;
   if (len > MAX_MESSAGE_SIZE) {
     ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0,
         "log line too long to write: got %d bytes; needed <%d", len, MAX_MESSAGE_SIZE);
     return;
   }
 
+  // This could probably be done by writing the byte pattern for SVMQ_MESSAGE_TYPE as the
+  // first element in the log line, then treating the buffer passed in here by nginx as the
+  // actual struct type expected by msgsnd. length would just be len-4. This would prevent
+  // having to copy the entire string here.
   lmsg.mtype = SVMQ_MESSAGE_TYPE;
-  memcpy(lmsg.mtext, (char*)buf, len);
-  ret = msgsnd(log->msqid, &lmsg, len * sizeof(char) - 1, IPC_NOWAIT);
+  ngx_memcpy(lmsg.mtext, (char*)buf, len);
+  ret = msgsnd(log->msqid, &lmsg, len * sizeof(char), IPC_NOWAIT);
 
   if (ret < 0) {
     now = ngx_time();
