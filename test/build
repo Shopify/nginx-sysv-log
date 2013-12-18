@@ -1,0 +1,5 @@
+cd /home/vagrant/nginx-1.5.7
+auto/configure --add-module=/path/to/shopify_log_module
+make
+make install
+
