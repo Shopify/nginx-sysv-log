@@ -573,7 +573,7 @@ shopify_log_create_main_conf(ngx_conf_t *cf)
 static char *
 shopify_log_open_msq(int *msqid)
 {
-  *msqid = msgget(MESSAGE_QUEUE_KEY, 0660 | IPC_CREAT);
+  *msqid = msgget(MESSAGE_QUEUE_KEY, 0660);
   if (*msqid < 0) {
     return NGX_CONF_ERROR;
   }
