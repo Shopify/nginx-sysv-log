@@ -233,8 +233,11 @@ shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t
   time_t            now;
   shopify_log_msg_t msg;
 
-  len = orig_len - NGX_LINEFEED_SIZE;
-  if (len < 0) len = 0;
+  if (NGX_LINEFEED_SIZE > orig_len) {
+    len = 0;
+  } else {
+    len = orig_len - NGX_LINEFEED_SIZE;
+  }
   if (len > MAX_MESSAGE_SIZE) {
     ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0,
         "log line too long to write: got %d bytes; needed <%d", len, MAX_MESSAGE_SIZE);
@@ -442,7 +445,7 @@ shopify_log_variable_getlen(ngx_http_request_t *r, uintptr_t data)
 
   value->escape = len ? 1 : 0;
 
-  return value->len + len * 3;
+  return value->len + len * 5;
 }
 
 
