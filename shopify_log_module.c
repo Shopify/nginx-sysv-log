@@ -244,6 +244,12 @@ shopify_log_write(ngx_http_request_t *r, shopify_log_t *log, u_char *buf, size_t
     return;
   }
 
+  // Avoid writing zero length messages to the queue as this will trigger all sorts of
+  // producer backlog warnings
+  if (0 == len) {
+    return;
+  }
+
   // This could probably be done by writing the byte pattern for SVMQ_MESSAGE_TYPE as the
   // first element in the log line, then treating the buffer passed in here by nginx as the
   // actual struct type expected by msgsnd. length would just be len-4. This would prevent
