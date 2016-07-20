@@ -1,3 +1,5 @@
+**This module is not actively maintained and can be removed without notice. Using it in production is strongly discouraged.**
+
 # shopify_log_module for nginx
 
 This is a module for nginx that writes the access log to a SysV Message Queue
